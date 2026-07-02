@@ -7,6 +7,7 @@ const { WebSocketServer } = require('ws');
 
 const PORT = process.env.PORT || 3000;
 const TARGET = 10; // 방을 시작하는 데 필요한 인원 (팀장 2 + 팀원 8)
+const VOTE_SECONDS = 30; // 팀장 투표 제한시간
 
 // 1 > 2 > 2 > 2 > 1 스네이크 드래프트.
 // 값은 "이번 슬롯을 뽑는 팀장 index(0 또는 1)".
@@ -56,6 +57,8 @@ function getRoom(code) {
       turnIndex: 0,
       picks: [],
       joinCounter: 0,
+      votingEndsAt: null,
+      voteTimer: null,
     };
     rooms.set(code, room);
   }
@@ -99,6 +102,7 @@ function publicState(room) {
     })),
     votes: room.votes, // {voterId: targetId} — 누가 냈는지(투표 완료 표시용)
     votedCount: Object.keys(room.votes).length,
+    votingEndsAt: room.votingEndsAt || null, // 투표 마감 시각(epoch ms)
     leaders: room.leaders,
     turnIndex: room.turnIndex,
     totalPicks: PICK_ORDER.length,
@@ -145,7 +149,14 @@ function assignHostIfNeeded(room) {
   }
 }
 
+function clearVoteTimer(room) {
+  if (room.voteTimer) clearTimeout(room.voteTimer);
+  room.voteTimer = null;
+  room.votingEndsAt = null;
+}
+
 function resetToLobby(room) {
+  clearVoteTimer(room);
   room.phase = 'lobby';
   room.votes = {};
   room.leaders = [];
@@ -159,6 +170,7 @@ function resetToLobby(room) {
 
 function startVoting(room) {
   if (room.players.length !== TARGET) return { error: `${TARGET}명이 모여야 시작할 수 있어요. (현재 ${room.players.length}명)` };
+  clearVoteTimer(room);
   room.phase = 'voting';
   room.votes = {};
   room.leaders = [];
@@ -168,10 +180,19 @@ function startVoting(room) {
     p.role = null;
     p.team = null;
   }
+  // 30초 제한시간: 시간이 지나면 현재 득표 기준으로 즉시 팀장 확정
+  room.votingEndsAt = Date.now() + VOTE_SECONDS * 1000;
+  room.voteTimer = setTimeout(() => {
+    if (room.phase !== 'voting') return;
+    finishVoting(room);
+    broadcast(room);
+    broadcastLobby();
+  }, VOTE_SECONDS * 1000);
   return {};
 }
 
 function finishVoting(room) {
+  clearVoteTimer(room);
   const counts = voteCounts(room);
   // 득표 내림차순, 동점이면 먼저 들어온 순(joinIndex)으로 안정 정렬
   const ranked = [...room.players].sort((a, b) => {

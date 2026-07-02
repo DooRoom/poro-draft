@@ -63,6 +63,8 @@
   .tag.host { background: #3a2f00; color: var(--gold); }
   .tag.you { background: #10314f; color: #7db4ff; }
   .tag.off { background: #3a1f24; color: #ff8a97; }
+  .tag.voted { background: #123524; color: #7ff0b5; }
+  .tag.notvoted { background: #2a3346; color: #93a1bd; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); display: inline-block; }
   .dot.off { background: #5b6577; }
   .votebadge { font-size: 12px; color: var(--muted); }
@@ -164,6 +166,13 @@
   }
   connect();
 
+  // 투표 카운트다운을 매초 갱신 (서버 votingEndsAt 기준)
+  setInterval(() => {
+    const el = document.getElementById('voteTimer');
+    if (!el || !lastRoom || lastRoom.phase !== 'voting' || !lastRoom.votingEndsAt) return;
+    el.textContent = Math.max(0, Math.min(99, Math.ceil((lastRoom.votingEndsAt - Date.now()) / 1000)));
+  }, 250);
+
   function sendMsg(obj) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj)); }
 
   $('joinBtn').onclick = () => {
@@ -254,6 +263,11 @@
       </div>`;
   }
 
+  function voteRemain(room) {
+    if (!room.votingEndsAt) return null;
+    return Math.max(0, Math.min(99, Math.ceil((room.votingEndsAt - Date.now()) / 1000)));
+  }
+
   function renderVoting(room) {
     const myVote = room.votes[selfId];
     const voted = room.players
@@ -261,22 +275,28 @@
       .map(p => {
         const mine = myVote === p.id;
         const isSelf = p.id === selfId;
+        const hasVoted = !!room.votes[p.id];
+        const voteTag = hasVoted
+          ? '<span class="tag voted">투표함</span>'
+          : '<span class="tag notvoted">미투표</span>';
         return `
         <div class="pill ${isSelf?'':'selectable'}" ${isSelf?'':`data-vote="${p.id}"`}
              style="${mine?'border-color:var(--gold)':''}">
-          <span class="name"><span class="dot ${p.connected?'':'off'}"></span>${escapeHtml(p.name)} ${tags(room,p)}</span>
+          <span class="name"><span class="dot ${p.connected?'':'off'}"></span>${escapeHtml(p.name)} ${tags(room,p)} ${voteTag}</span>
           <span class="votebadge">${p.votes}표 ${mine?'✅':''}</span>
         </div>`;
       }).join('');
+    const remain = voteRemain(room);
     return `
-      <div class="banner blue">팀장이 될 사람에게 투표하세요! 최다 득표 2명이 팀장이 됩니다.</div>
+      <div class="banner blue">팀장이 될 사람에게 투표하세요! 최다 득표 2명이 팀장이 됩니다.<br>
+        ⏱ 남은 시간 <b id="voteTimer">${remain ?? '-'}</b>초 (0초가 되면 현재 득표로 바로 확정)</div>
       <div class="card">
         <div class="row" style="justify-content:space-between;margin-bottom:10px">
           <span class="votebadge">투표 완료 ${room.votedCount} / ${room.players.length}</span>
           <span class="votebadge">${myVote ? '나의 선택: '+escapeHtml(nameOf(room,myVote)) : '아직 투표 안 함'}</span>
         </div>
         <div class="grid">${voted}</div>
-        <div class="hint">전원 투표하면 자동으로 팀장이 확정되고 드래프트가 시작돼요. (자신에게는 투표 불가, 바꿔 찍기 가능)</div>
+        <div class="hint">전원 투표하거나 시간이 다 되면 팀장이 확정되고 드래프트가 시작돼요. (자신에게는 투표 불가, 바꿔 찍기 가능)</div>
       </div>`;
   }
 
