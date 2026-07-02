@@ -40,6 +40,9 @@ const wss = new WebSocketServer({ server });
  */
 const rooms = new Map();
 
+// 참여 화면(방 목록)을 보고 있는, 아직 방에 안 들어온 연결들
+const lobbyWatchers = new Set();
+
 function getRoom(code) {
   let room = rooms.get(code);
   if (!room) {
@@ -107,6 +110,31 @@ function publicState(room) {
 function broadcast(room) {
   const msg = { type: 'state', room: publicState(room) };
   for (const p of room.players) send(p.ws, msg);
+}
+
+// 참여 화면에 보여줄 방 목록 (접속자 0인 유령 방은 숨김)
+function roomListPayload() {
+  const list = [];
+  for (const room of rooms.values()) {
+    const connected = room.players.filter((p) => p.connected).length;
+    if (connected === 0) continue;
+    list.push({
+      code: room.code,
+      count: room.players.length,
+      connected,
+      target: TARGET,
+      phase: room.phase,
+      joinable: room.phase === 'lobby' && room.players.length < TARGET,
+    });
+  }
+  // 참여 가능한 방 먼저, 그다음 코드순
+  list.sort((a, b) => (b.joinable - a.joinable) || a.code.localeCompare(b.code));
+  return list;
+}
+
+function broadcastLobby() {
+  const msg = { type: 'lobby', rooms: roomListPayload() };
+  for (const ws of lobbyWatchers) send(ws, msg);
 }
 
 function assignHostIfNeeded(room) {
@@ -214,20 +242,29 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
+    lobbyWatchers.delete(ws);
     const room = ws.roomCode ? rooms.get(ws.roomCode) : null;
-    if (!room) return;
-    const player = room.players.find((p) => p.id === ws.playerId);
-    if (player) {
-      player.connected = false;
-      player.ws = null;
+    if (room) {
+      const player = room.players.find((p) => p.id === ws.playerId);
+      if (player) {
+        player.connected = false;
+        player.ws = null;
+      }
+      assignHostIfNeeded(room);
+      broadcast(room);
     }
-    assignHostIfNeeded(room);
-    broadcast(room);
+    broadcastLobby();
   });
 });
 
 function handleMessage(ws, msg) {
   if (!msg || typeof msg.type !== 'string') return;
+
+  if (msg.type === 'watchLobby') {
+    lobbyWatchers.add(ws);
+    send(ws, { type: 'lobby', rooms: roomListPayload() });
+    return;
+  }
 
   if (msg.type === 'join') {
     const code = String(msg.room || '').trim().toLowerCase();
@@ -269,8 +306,10 @@ function handleMessage(ws, msg) {
     ws.roomCode = code;
     ws.playerId = player.id;
 
+    lobbyWatchers.delete(ws);
     send(ws, { type: 'joined', selfId: player.id, token: player.token, code });
     broadcast(room);
+    broadcastLobby();
     return;
   }
 
@@ -300,6 +339,7 @@ function handleMessage(ws, msg) {
       if (room.phase === 'lobby') {
         room.players = room.players.filter((p) => p.id !== selfId);
         assignHostIfNeeded(room);
+        if (room.players.length === 0) rooms.delete(room.code);
       }
       break;
     default:
@@ -308,4 +348,5 @@ function handleMessage(ws, msg) {
 
   if (result.error) return send(ws, { type: 'error', message: result.error });
   broadcast(room);
+  broadcastLobby();
 }

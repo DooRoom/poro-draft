@@ -93,14 +93,18 @@
 
   <!-- 참여 화면 -->
   <div class="card" id="joinCard">
-    <label>방 코드</label>
-    <input id="roomInput" placeholder="예: poro (같은 코드끼리 한 방)" maxlength="24" />
     <label>내 이름</label>
     <input id="nameInput" placeholder="닉네임" maxlength="20" />
+    <label>방 코드 (새로 만들거나 직접 입력해 참여)</label>
     <div class="row">
-      <button id="joinBtn">방 참여하기</button>
+      <input id="roomInput" placeholder="예: poro" maxlength="24" style="flex:1;margin-bottom:0" />
+      <button id="joinBtn">참여 / 만들기</button>
     </div>
-    <div class="hint">10명이 같은 방 코드로 모이면 방장이 시작할 수 있어요.</div>
+    <div class="hint">10명이 모이면 방장이 시작할 수 있어요. 아래 <b>열린 방</b>을 눌러 바로 참여할 수도 있어요.</div>
+    <div id="roomListWrap" style="margin-top:20px;">
+      <label>열려있는 방 (실시간)</label>
+      <div id="roomList" class="grid"></div>
+    </div>
   </div>
 
   <!-- 게임 화면 -->
@@ -123,6 +127,8 @@
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     ws = new WebSocket(proto + '://' + location.host);
     ws.onopen = () => {
+      // 참여 화면 방 목록 실시간 구독
+      ws.send(JSON.stringify({ type: 'watchLobby' }));
       // 새로고침 후 자동 재접속
       const savedRoom = localStorage.getItem('poro_room');
       const savedName = localStorage.getItem('poro_name');
@@ -142,6 +148,8 @@
       } else if (msg.type === 'state') {
         lastRoom = msg.room;
         render(msg.room);
+      } else if (msg.type === 'lobby') {
+        renderRoomList(msg.rooms);
       } else if (msg.type === 'error') {
         showErr(msg.message);
       }
@@ -161,6 +169,32 @@
     sendMsg({ type: 'join', room, name, token });
   };
   $('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('joinBtn').click(); });
+  $('roomInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('joinBtn').click(); });
+
+  // 참여 화면: 열려있는 방 목록 렌더
+  function renderRoomList(list) {
+    const el = $('roomList');
+    if (!list || !list.length) {
+      el.innerHTML = '<div class="hint">아직 열린 방이 없어요. 위에서 방 코드를 입력해 새로 만드세요.</div>';
+      return;
+    }
+    el.innerHTML = list.map((r) => {
+      const badge = r.phase === 'lobby'
+        ? `<span class="tag you">대기중 ${r.connected}/${r.target}</span>`
+        : `<span class="tag off">진행중</span>`;
+      const btn = r.joinable
+        ? `<button data-join="${escapeHtml(r.code)}">참여하기</button>`
+        : `<button disabled>${r.phase === 'lobby' ? '만원' : '진행중'}</button>`;
+      return `<div class="pill"><span class="name">${escapeHtml(r.code)} ${badge}</span>${btn}</div>`;
+    }).join('');
+    el.querySelectorAll('[data-join]').forEach((b) => b.onclick = () => {
+      const code = b.getAttribute('data-join');
+      const name = $('nameInput').value.trim();
+      if (!name) return showErr('먼저 이름을 입력해 주세요.');
+      localStorage.setItem('poro_name', name);
+      sendMsg({ type: 'join', room: code, name, token });
+    });
+  }
 
   const PICK_ORDER = [0,1,1,0,0,1,1,0];
   const PHASES = { lobby:'대기실', voting:'투표', draft:'드래프트', result:'결과' };
