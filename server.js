@@ -280,10 +280,10 @@ function castVote(room, voterId, targetId) {
 wss.on('connection', (ws) => {
   ws.roomCode = null;
   ws.playerId = null;
-  ws.isAlive = true;
-  ws.on('pong', () => { ws.isAlive = true; });
+  ws.lastSeen = Date.now();
 
   ws.on('message', (raw) => {
+    ws.lastSeen = Date.now(); // 어떤 메시지든 오면 살아있는 것으로 간주
     let msg;
     try {
       msg = JSON.parse(raw.toString());
@@ -322,15 +322,18 @@ wss.on('connection', (ws) => {
   });
 });
 
-// 프로토콜 레벨 heartbeat: 응답 없는(죽은) 연결을 10초 주기로 감지해 종료 → close 핸들러가 오프라인 처리
-const HEARTBEAT_MS = 10000;
+// liveness 감지: 앱 레벨 메시지(핑 포함)를 기준으로 판단.
+// 프로토콜 ping/pong은 일부 프록시(Render 등)가 전달을 누락할 수 있어 사용하지 않는다.
+// 클라이언트가 4초마다 핑을 보내므로, 일정 시간 아무 메시지도 없으면 죽은 연결로 보고 정리.
+// 브라우저 백그라운드 탭은 타이머가 분당 1회까지 느려질 수 있어 넉넉히(70초) 잡는다.
+const LIVENESS_TIMEOUT_MS = Number(process.env.LIVENESS_TIMEOUT_MS) || 70000;
+const HEARTBEAT_INTERVAL_MS = Number(process.env.HEARTBEAT_INTERVAL_MS) || 20000;
 const heartbeat = setInterval(() => {
+  const now = Date.now();
   wss.clients.forEach((ws) => {
-    if (ws.isAlive === false) return ws.terminate();
-    ws.isAlive = false;
-    try { ws.ping(); } catch {}
+    if (now - (ws.lastSeen || 0) > LIVENESS_TIMEOUT_MS) ws.terminate();
   });
-}, HEARTBEAT_MS);
+}, HEARTBEAT_INTERVAL_MS);
 wss.on('close', () => clearInterval(heartbeat));
 
 function handleMessage(ws, msg) {

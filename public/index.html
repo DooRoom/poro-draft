@@ -27,7 +27,7 @@
     min-height: 100vh;
   }
   .wrap { max-width: 920px; margin: 0 auto; padding: 24px 16px 60px; }
-  .hero { display: block; width: 100%; max-width: 340px; margin: 4px auto 6px; border-radius: 18px; border: 1px solid var(--line); box-shadow: 0 10px 34px rgba(0,0,0,.4); }
+  .hero { display: block; width: 100%; max-width: 240px; margin: 4px auto 6px; border-radius: 18px; border: 1px solid var(--line); box-shadow: 0 10px 34px rgba(0,0,0,.4); }
   .sep { height: 1px; background: var(--line); margin: 16px 0; }
   h1 { font-size: 28px; letter-spacing: .5px; margin: 6px 0 18px; text-align: center; }
   .sub { text-align: center; color: var(--muted); margin-bottom: 20px; font-size: 14px; }
@@ -48,12 +48,14 @@
   button.gold { background: var(--gold); color: #23262e; }
   button.red { background: var(--red); }
   .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+  .grid { display: flex; flex-direction: column; gap: 10px; }
   .pill {
     background: var(--panel2); border: 1px solid var(--line); border-radius: 10px;
     padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 8px;
   }
-  .pill .name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .pill .name { font-weight: 600; display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+  .pill .name .tag, .pill .name .dot { flex-shrink: 0; }
+  .pname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .tag { font-size: 11px; padding: 2px 7px; border-radius: 999px; font-weight: 700; white-space: nowrap; }
   /* 방 목록: 한 줄에 하나씩 꽉 차게 */
   .roomlist { display: flex; flex-direction: column; gap: 10px; }
@@ -95,7 +97,8 @@
   .team.t0 { background: linear-gradient(180deg, #10233f, var(--panel)); border-color: #274a86; }
   .team.t1 { background: linear-gradient(180deg, #3a1620, var(--panel)); border-color: #7a2f3c; }
   .team h3 { margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
-  .team .member { padding: 8px 10px; background: rgba(255,255,255,.04); border-radius: 8px; margin-bottom: 6px; display:flex; justify-content:space-between; }
+  .team .member { padding: 8px 10px; background: rgba(255,255,255,.04); border-radius: 8px; margin-bottom: 6px; display:flex; justify-content:space-between; gap: 6px; }
+  .team .member > span { min-width: 0; overflow: hidden; display: flex; align-items: center; gap: 4px; }
   .step { display: flex; gap: 6px; justify-content: center; margin: 4px 0 16px; flex-wrap: wrap; }
   .step span { font-size: 12px; color: var(--muted); padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); }
   .step span.active { background: var(--blue); color: #fff; border-color: var(--blue); }
@@ -152,6 +155,7 @@
   function showErr(m) { err.textContent = m; setTimeout(() => { if (err.textContent === m) err.textContent = ''; }, 3500); }
 
   function connect() {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     ws = new WebSocket(proto + '://' + location.host);
     ws.onopen = () => {
@@ -205,7 +209,19 @@
     else { el.className = 'conn bad'; $('cText').textContent = '재연결 중…'; }
   }
   setInterval(() => sendMsg({ type: 'ping' }), 4000);
-  setInterval(updateConnBadge, 1000);
+  setInterval(() => {
+    updateConnBadge();
+    // 자가 복구: 화면이 보이는데 12초간 퐁이 없으면 소켓이 죽은 것으로 보고 재연결(새로고침 불필요)
+    if (document.visibilityState === 'visible' && ws && ws.readyState === WebSocket.OPEN && Date.now() - lastPongAt > 12000) {
+      try { ws.close(); } catch {}
+    }
+  }, 1000);
+  // 탭이 다시 보이면 즉시 연결 확인/복구
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) connect();
+    else sendMsg({ type: 'ping' });
+  });
 
   // 투표 카운트다운을 매초 갱신 (서버 votingEndsAt 기준)
   setInterval(() => {
@@ -284,7 +300,7 @@
     const full = room.players.length === room.target;
     const list = room.players.map(p => `
       <div class="pill">
-        <span class="name"><span class="dot ${p.connected?'':'off'}"></span>${escapeHtml(p.name)} ${tags(room,p)}</span>
+        <span class="name"><span class="dot ${p.connected?'':'off'}"></span><span class="pname">${escapeHtml(p.name)}</span> ${tags(room,p)}</span>
       </div>`).join('');
     return `
       <div class="card">
@@ -324,7 +340,7 @@
         return `
         <div class="pill ${isSelf?'':'selectable'}" ${isSelf?'':`data-vote="${p.id}"`}
              style="${mine?'border-color:var(--gold)':''}">
-          <span class="name"><span class="dot ${p.connected?'':'off'}"></span>${escapeHtml(p.name)} ${tags(room,p)} ${voteTag}</span>
+          <span class="name"><span class="dot ${p.connected?'':'off'}"></span><span class="pname">${escapeHtml(p.name)}</span> ${tags(room,p)} ${voteTag}</span>
           <span class="votebadge">${p.votes}표 ${mine?'✅':''}</span>
         </div>`;
       }).join('');
@@ -361,7 +377,7 @@
     const available = room.players.filter(p => !p.role);
     const avail = available.map(p => `
       <div class="pill ${myTurn?'selectable':''}" ${myTurn?`data-pick="${p.id}"`:''}>
-        <span class="name"><span class="dot ${p.connected?'':'off'}"></span>${escapeHtml(p.name)} ${tags(room,p)}</span>
+        <span class="name"><span class="dot ${p.connected?'':'off'}"></span><span class="pname">${escapeHtml(p.name)}</span> ${tags(room,p)}</span>
         ${myTurn?'<span class="votebadge">뽑기 →</span>':''}
       </div>`).join('');
 
@@ -387,7 +403,7 @@
     const t1 = room.players.filter(p => p.team === 1);
     const memb = (arr) => arr.map(p => `
       <div class="member">
-        <span>${p.role==='leader'?'👑 ':''}${escapeHtml(p.name)} ${p.id===selfId?'<span class="tag you">나</span>':''}</span>
+        <span>${p.role==='leader'?'👑 ':''}<span class="pname">${escapeHtml(p.name)}</span> ${p.id===selfId?'<span class="tag you">나</span>':''}</span>
       </div>`).join('') || '<div class="hint">아직 없음</div>';
     return `
       <div class="teams">
