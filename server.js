@@ -7,7 +7,9 @@ const { WebSocketServer } = require('ws');
 
 const PORT = process.env.PORT || 3000;
 const TARGET = 10; // 방을 시작하는 데 필요한 인원 (팀장 2 + 팀원 8)
-const VOTE_SECONDS = 30; // 팀장 투표 제한시간
+const VOTE_SECONDS = Number(process.env.VOTE_SECONDS) || 30; // 팀장 투표 제한시간
+const LOBBY_OFFLINE_SECONDS = Number(process.env.LOBBY_OFFLINE_SECONDS) || 25; // 대기실에서 끊긴 사람을 자동 퇴장시키기까지 유예
+const DRAFT_OFFLINE_SECONDS = Number(process.env.DRAFT_OFFLINE_SECONDS) || 12; // 드래프트에서 팀장이 오프라인이면 자동 픽까지 대기
 
 // 1 > 2 > 2 > 2 > 1 스네이크 드래프트.
 // 값은 "이번 슬롯을 뽑는 팀장 index(0 또는 1)".
@@ -59,6 +61,7 @@ function getRoom(code) {
       joinCounter: 0,
       votingEndsAt: null,
       voteTimer: null,
+      draftTimer: null,
     };
     rooms.set(code, room);
   }
@@ -141,6 +144,29 @@ function broadcastLobby() {
   for (const ws of lobbyWatchers) send(ws, msg);
 }
 
+// 드래프트에서 현재 뽑을 팀장이 오프라인이면, 일정 시간 뒤 자동으로 랜덤 픽해 게임이 멈추지 않게 함
+function scheduleDraftAutopick(room) {
+  if (room.draftTimer) { clearTimeout(room.draftTimer); room.draftTimer = null; }
+  if (room.phase !== 'draft') return;
+  const picker = room.players.find((p) => p.id === currentPickerId(room));
+  if (!picker || picker.connected) return; // 접속 중이면 본인이 뽑음
+
+  room.draftTimer = setTimeout(() => {
+    room.draftTimer = null;
+    if (room.phase !== 'draft') return;
+    const pid = currentPickerId(room);
+    const cur = room.players.find((p) => p.id === pid);
+    if (!cur || cur.connected) return; // 그 사이 복귀했으면 취소
+    const avail = room.players.filter((p) => !p.role);
+    if (!avail.length) return;
+    const target = avail[Math.floor(Math.random() * avail.length)];
+    doPick(room, pid, target.id);
+    broadcast(room);
+    broadcastLobby();
+    scheduleDraftAutopick(room); // 다음 픽도 오프라인이면 이어서 자동 진행
+  }, DRAFT_OFFLINE_SECONDS * 1000);
+}
+
 function assignHostIfNeeded(room) {
   const host = room.players.find((p) => p.id === room.hostId && p.connected);
   if (!host) {
@@ -157,6 +183,7 @@ function clearVoteTimer(room) {
 
 function resetToLobby(room) {
   clearVoteTimer(room);
+  if (room.draftTimer) { clearTimeout(room.draftTimer); room.draftTimer = null; }
   room.phase = 'lobby';
   room.votes = {};
   room.leaders = [];
@@ -187,6 +214,7 @@ function startVoting(room) {
     finishVoting(room);
     broadcast(room);
     broadcastLobby();
+    scheduleDraftAutopick(room);
   }, VOTE_SECONDS * 1000);
   return {};
 }
@@ -270,9 +298,22 @@ wss.on('connection', (ws) => {
       if (player) {
         player.connected = false;
         player.ws = null;
+        // 대기실에서 끊기면 유예 후 자동 퇴장 (그 안에 재접속하면 자리 유지)
+        if (room.phase === 'lobby') {
+          clearTimeout(player.removeTimer);
+          player.removeTimer = setTimeout(() => {
+            if (player.connected || room.phase !== 'lobby' || rooms.get(room.code) !== room) return;
+            room.players = room.players.filter((p) => p.id !== player.id);
+            assignHostIfNeeded(room);
+            if (room.players.length === 0) rooms.delete(room.code);
+            broadcast(room);
+            broadcastLobby();
+          }, LOBBY_OFFLINE_SECONDS * 1000);
+        }
       }
       assignHostIfNeeded(room);
       broadcast(room);
+      scheduleDraftAutopick(room); // 나간 사람이 뽑을 차례면 자동 픽 예약
     }
     broadcastLobby();
   });
@@ -301,6 +342,8 @@ function handleMessage(ws, msg) {
       player.connected = true;
       player.ws = ws;
       if (name) player.name = name;
+      clearTimeout(player.removeTimer);
+      player.removeTimer = null;
     } else {
       if (room.phase !== 'lobby') {
         return send(ws, { type: 'error', message: '이미 진행 중인 방이에요. 시작 전 대기실에서만 참여할 수 있어요.' });
@@ -331,6 +374,7 @@ function handleMessage(ws, msg) {
     send(ws, { type: 'joined', selfId: player.id, token: player.token, code });
     broadcast(room);
     broadcastLobby();
+    scheduleDraftAutopick(room); // 재접속으로 오프라인 팀장이 돌아오면 자동픽 타이머 갱신
     return;
   }
 
@@ -370,4 +414,5 @@ function handleMessage(ws, msg) {
   if (result.error) return send(ws, { type: 'error', message: result.error });
   broadcast(room);
   broadcastLobby();
+  scheduleDraftAutopick(room);
 }

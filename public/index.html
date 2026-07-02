@@ -28,6 +28,7 @@
   }
   .wrap { max-width: 920px; margin: 0 auto; padding: 24px 16px 60px; }
   .hero { display: block; width: 100%; max-width: 340px; margin: 4px auto 6px; border-radius: 18px; border: 1px solid var(--line); box-shadow: 0 10px 34px rgba(0,0,0,.4); }
+  .sep { height: 1px; background: var(--line); margin: 16px 0; }
   h1 { font-size: 28px; letter-spacing: .5px; margin: 6px 0 18px; text-align: center; }
   .sub { text-align: center; color: var(--muted); margin-bottom: 20px; font-size: 14px; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px; margin-bottom: 16px; }
@@ -73,6 +74,7 @@
   .banner { text-align: center; padding: 14px; border-radius: 10px; margin-bottom: 16px; font-weight: 600; }
   .banner.blue { background: #12294d; color: #9cc2ff; }
   .banner.turn { background: #133524; color: #7ff0b5; }
+  .banner.off { background: #3a2a12; color: #ffcf8a; }
   .teams { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   .team { border-radius: 12px; padding: 14px; border: 1px solid var(--line); }
   .team.t0 { background: linear-gradient(180deg, #10233f, var(--panel)); border-color: #274a86; }
@@ -101,6 +103,10 @@
 
   <!-- 참여 화면 -->
   <div class="card" id="joinCard">
+    <label>열려있는 방 (실시간)</label>
+    <div id="roomList" class="roomlist"></div>
+    <div class="hint" style="margin:8px 0 2px">방을 눌러 바로 참여하거나, 아래에서 새 방을 만드세요.</div>
+    <div class="sep"></div>
     <label>내 이름</label>
     <input id="nameInput" placeholder="닉네임" maxlength="20" />
     <label>방 코드 (새로 만들거나 직접 입력해 참여)</label>
@@ -108,11 +114,7 @@
       <input id="roomInput" placeholder="예: poro" maxlength="24" style="flex:1;margin-bottom:0" />
       <button id="joinBtn">참여 / 만들기</button>
     </div>
-    <div class="hint">10명이 모이면 방장이 시작할 수 있어요. 아래 <b>열린 방</b>을 눌러 바로 참여할 수도 있어요.</div>
-    <div id="roomListWrap" style="margin-top:20px;">
-      <label>열려있는 방 (실시간)</label>
-      <div id="roomList" class="roomlist"></div>
-    </div>
+    <div class="hint">10명이 모이면 방장이 시작할 수 있어요.</div>
   </div>
 
   <!-- 게임 화면 -->
@@ -205,7 +207,7 @@
     el.querySelectorAll('[data-join]').forEach((b) => b.onclick = () => {
       const code = b.getAttribute('data-join');
       const name = $('nameInput').value.trim();
-      if (!name) return showErr('먼저 이름을 입력해 주세요.');
+      if (!name) { showErr('먼저 이름을 입력해 주세요.'); $('nameInput').focus(); return; }
       localStorage.setItem('poro_name', name);
       sendMsg({ type: 'join', room: code, name, token });
     });
@@ -312,6 +314,8 @@
   function renderDraft(room) {
     const pickerId = room.currentPickerId;
     const myTurn = pickerId === selfId;
+    const picker = room.players.find(p => p.id === pickerId);
+    const pickerOffline = picker && !picker.connected;
     const leaderA = nameOf(room, room.leaders[0]);
     const leaderB = nameOf(room, room.leaders[1]);
     const available = room.players.filter(p => !p.role);
@@ -323,7 +327,9 @@
 
     const banner = myTurn
       ? `<div class="banner turn">🎯 당신(${escapeHtml(nameOf(room,selfId))}) 차례입니다! 팀원을 한 명 뽑으세요.</div>`
-      : `<div class="banner blue">${escapeHtml(nameOf(room, pickerId))} 팀장이 뽑는 중... (${room.turnIndex+1}/${room.totalPicks})</div>`;
+      : pickerOffline
+        ? `<div class="banner off">⚠️ ${escapeHtml(nameOf(room, pickerId))} 팀장이 오프라인입니다. 잠시 후 자동으로 뽑습니다... (${room.turnIndex+1}/${room.totalPicks})</div>`
+        : `<div class="banner blue">${escapeHtml(nameOf(room, pickerId))} 팀장이 뽑는 중... (${room.turnIndex+1}/${room.totalPicks})</div>`;
 
     return `
       ${banner}
