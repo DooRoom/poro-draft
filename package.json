@@ -1,0 +1,17 @@
+{
+  "name": "poro-draft",
+  "version": "1.0.0",
+  "description": "실시간 팀장 투표 & 스네이크 드래프트 (10인)",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.18.0"
+  }
+}

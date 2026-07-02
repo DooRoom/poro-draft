@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Poro Draft — 팀장 투표 & 스네이크 드래프트</title>
+<style>
+  :root {
+    --bg: #0f1420;
+    --panel: #182031;
+    --panel2: #202b40;
+    --line: #2c3852;
+    --text: #e7ecf5;
+    --muted: #93a1bd;
+    --blue: #3d7bff;
+    --red: #ff5468;
+    --gold: #f6c445;
+    --green: #35d07f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+    background: radial-gradient(1200px 600px at 50% -10%, #1b2740, var(--bg));
+    color: var(--text);
+    min-height: 100vh;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 24px 16px 60px; }
+  h1 { font-size: 26px; margin: 8px 0 4px; text-align: center; }
+  .sub { text-align: center; color: var(--muted); margin-bottom: 20px; font-size: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px; margin-bottom: 16px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  input {
+    width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--panel2); color: var(--text); font-size: 15px; margin-bottom: 14px;
+  }
+  button {
+    cursor: pointer; border: none; border-radius: 10px; padding: 12px 18px;
+    font-size: 15px; font-weight: 600; color: #fff; background: var(--blue);
+    transition: filter .15s, opacity .15s;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--muted); }
+  button.gold { background: var(--gold); color: #23262e; }
+  button.red { background: var(--red); }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+  .pill {
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  .pill .name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .tag { font-size: 11px; padding: 2px 7px; border-radius: 999px; font-weight: 700; }
+  .tag.host { background: #3a2f00; color: var(--gold); }
+  .tag.you { background: #10314f; color: #7db4ff; }
+  .tag.off { background: #3a1f24; color: #ff8a97; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); display: inline-block; }
+  .dot.off { background: #5b6577; }
+  .votebadge { font-size: 12px; color: var(--muted); }
+  .selectable { cursor: pointer; }
+  .selectable:hover { border-color: var(--blue); }
+  .banner { text-align: center; padding: 14px; border-radius: 10px; margin-bottom: 16px; font-weight: 600; }
+  .banner.blue { background: #12294d; color: #9cc2ff; }
+  .banner.turn { background: #133524; color: #7ff0b5; }
+  .teams { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .team { border-radius: 12px; padding: 14px; border: 1px solid var(--line); }
+  .team.t0 { background: linear-gradient(180deg, #10233f, var(--panel)); border-color: #274a86; }
+  .team.t1 { background: linear-gradient(180deg, #3a1620, var(--panel)); border-color: #7a2f3c; }
+  .team h3 { margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+  .team .member { padding: 8px 10px; background: rgba(255,255,255,.04); border-radius: 8px; margin-bottom: 6px; display:flex; justify-content:space-between; }
+  .step { display: flex; gap: 6px; justify-content: center; margin: 4px 0 16px; flex-wrap: wrap; }
+  .step span { font-size: 12px; color: var(--muted); padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); }
+  .step span.active { background: var(--blue); color: #fff; border-color: var(--blue); }
+  .hint { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  .err { color: var(--red); font-size: 13px; min-height: 18px; text-align: center; }
+  .schedule { display:flex; gap:6px; justify-content:center; flex-wrap:wrap; margin-top:10px; }
+  .schedule .slot { width: 30px; height: 30px; border-radius: 8px; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; border:1px solid var(--line); background: var(--panel2); }
+  .schedule .slot.s0 { border-color:#274a86; }
+  .schedule .slot.s1 { border-color:#7a2f3c; }
+  .schedule .slot.done0 { background:#1a3a6b; }
+  .schedule .slot.done1 { background:#6b1f2c; }
+  .schedule .slot.now { outline: 2px solid var(--gold); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🦔 Poro Draft</h1>
+  <div class="sub">실시간 팀장 투표 &amp; 스네이크 드래프트 (1 &gt; 2 &gt; 2 &gt; 2 &gt; 1)</div>
+  <div class="err" id="err"></div>
+
+  <!-- 참여 화면 -->
+  <div class="card" id="joinCard">
+    <label>방 코드</label>
+    <input id="roomInput" placeholder="예: poro (같은 코드끼리 한 방)" maxlength="24" />
+    <label>내 이름</label>
+    <input id="nameInput" placeholder="닉네임" maxlength="20" />
+    <div class="row">
+      <button id="joinBtn">방 참여하기</button>
+    </div>
+    <div class="hint">10명이 같은 방 코드로 모이면 방장이 시작할 수 있어요.</div>
+  </div>
+
+  <!-- 게임 화면 -->
+  <div id="app" style="display:none;">
+    <div class="step" id="steps"></div>
+    <div id="phaseArea"></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  let ws, selfId = null, token = localStorage.getItem('poro_token') || null;
+  let lastRoom = null;
+
+  const err = $('err');
+  function showErr(m) { err.textContent = m; setTimeout(() => { if (err.textContent === m) err.textContent = ''; }, 3500); }
+
+  function connect() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(proto + '://' + location.host);
+    ws.onopen = () => {
+      // 새로고침 후 자동 재접속
+      const savedRoom = localStorage.getItem('poro_room');
+      const savedName = localStorage.getItem('poro_name');
+      if (savedRoom && token) {
+        ws.send(JSON.stringify({ type: 'join', room: savedRoom, name: savedName || '', token }));
+      }
+    };
+    ws.onmessage = (ev) => {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === 'joined') {
+        selfId = msg.selfId;
+        token = msg.token;
+        localStorage.setItem('poro_token', token);
+        localStorage.setItem('poro_room', msg.code);
+        $('joinCard').style.display = 'none';
+        $('app').style.display = 'block';
+      } else if (msg.type === 'state') {
+        lastRoom = msg.room;
+        render(msg.room);
+      } else if (msg.type === 'error') {
+        showErr(msg.message);
+      }
+    };
+    ws.onclose = () => { showErr('서버 연결이 끊겼어요. 재연결 시도 중...'); setTimeout(connect, 1500); };
+  }
+  connect();
+
+  function sendMsg(obj) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj)); }
+
+  $('joinBtn').onclick = () => {
+    const room = $('roomInput').value.trim();
+    const name = $('nameInput').value.trim();
+    if (!room) return showErr('방 코드를 입력해 주세요.');
+    if (!name) return showErr('이름을 입력해 주세요.');
+    localStorage.setItem('poro_name', name);
+    sendMsg({ type: 'join', room, name, token });
+  };
+  $('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('joinBtn').click(); });
+
+  const PICK_ORDER = [0,1,1,0,0,1,1,0];
+  const PHASES = { lobby:'대기실', voting:'투표', draft:'드래프트', result:'결과' };
+
+  function render(room) {
+    // 단계 표시
+    $('steps').innerHTML = ['lobby','voting','draft','result'].map(p =>
+      `<span class="${room.phase===p?'active':''}">${PHASES[p]}</span>`).join('');
+
+    const area = $('phaseArea');
+    if (room.phase === 'lobby') area.innerHTML = renderLobby(room);
+    else if (room.phase === 'voting') area.innerHTML = renderVoting(room);
+    else if (room.phase === 'draft') area.innerHTML = renderDraft(room);
+    else if (room.phase === 'result') area.innerHTML = renderResult(room);
+
+    bindActions(room);
+  }
+
+  function nameOf(room, id) { const p = room.players.find(x=>x.id===id); return p ? p.name : '?'; }
+  function tags(room, p) {
+    let t = '';
+    if (p.id === room.hostId) t += '<span class="tag host">방장</span>';
+    if (p.id === selfId) t += '<span class="tag you">나</span>';
+    if (!p.connected) t += '<span class="tag off">오프라인</span>';
+    return t;
+  }
+
+  function renderLobby(room) {
+    const isHost = room.hostId === selfId;
+    const full = room.players.length === room.target;
+    const list = room.players.map(p => `
+      <div class="pill">
+        <span class="name"><span class="dot ${p.connected?'':'off'}"></span>${escapeHtml(p.name)} ${tags(room,p)}</span>
+      </div>`).join('');
+    return `
+      <div class="card">
+        <div class="row" style="justify-content:space-between">
+          <div><b>방 코드:</b> <span style="color:var(--gold)">${escapeHtml(room.code)}</span></div>
+          <div class="votebadge">${room.players.length} / ${room.target} 명</div>
+        </div>
+        <div class="hint">친구들에게 이 방 코드를 알려주세요. ${room.target}명이 모이면 시작합니다.</div>
+      </div>
+      <div class="card">
+        <div class="grid">${list || '<div class="hint">아직 아무도 없어요.</div>'}</div>
+      </div>
+      <div class="card row" style="justify-content:space-between">
+        <button class="ghost" data-act="leave">방 나가기</button>
+        ${isHost
+          ? `<button class="gold" data-act="start" ${full?'':'disabled'}>${full?'투표 시작':'10명 대기 중...'}</button>`
+          : `<span class="hint">방장이 시작하기를 기다리는 중...</span>`}
+      </div>`;
+  }
+
+  function renderVoting(room) {
+    const myVote = room.votes[selfId];
+    const voted = room.players
+      .slice().sort((a,b)=> b.votes - a.votes)
+      .map(p => {
+        const mine = myVote === p.id;
+        const isSelf = p.id === selfId;
+        return `
+        <div class="pill ${isSelf?'':'selectable'}" ${isSelf?'':`data-vote="${p.id}"`}
+             style="${mine?'border-color:var(--gold)':''}">
+          <span class="name"><span class="dot ${p.connected?'':'off'}"></span>${escapeHtml(p.name)} ${tags(room,p)}</span>
+          <span class="votebadge">${p.votes}표 ${mine?'✅':''}</span>
+        </div>`;
+      }).join('');
+    return `
+      <div class="banner blue">팀장이 될 사람에게 투표하세요! 최다 득표 2명이 팀장이 됩니다.</div>
+      <div class="card">
+        <div class="row" style="justify-content:space-between;margin-bottom:10px">
+          <span class="votebadge">투표 완료 ${room.votedCount} / ${room.players.length}</span>
+          <span class="votebadge">${myVote ? '나의 선택: '+escapeHtml(nameOf(room,myVote)) : '아직 투표 안 함'}</span>
+        </div>
+        <div class="grid">${voted}</div>
+        <div class="hint">전원 투표하면 자동으로 팀장이 확정되고 드래프트가 시작돼요. (자신에게는 투표 불가, 바꿔 찍기 가능)</div>
+      </div>`;
+  }
+
+  function scheduleBar(room) {
+    return `<div class="schedule">` + PICK_ORDER.map((s,i)=>{
+      let cls = 's'+s;
+      if (i < room.turnIndex) cls += ' done'+s;
+      if (i === room.turnIndex) cls += ' now';
+      return `<div class="slot ${cls}">${s===0?'A':'B'}</div>`;
+    }).join('') + `</div>`;
+  }
+
+  function renderDraft(room) {
+    const pickerId = room.currentPickerId;
+    const myTurn = pickerId === selfId;
+    const leaderA = nameOf(room, room.leaders[0]);
+    const leaderB = nameOf(room, room.leaders[1]);
+    const available = room.players.filter(p => !p.role);
+    const avail = available.map(p => `
+      <div class="pill ${myTurn?'selectable':''}" ${myTurn?`data-pick="${p.id}"`:''}>
+        <span class="name"><span class="dot ${p.connected?'':'off'}"></span>${escapeHtml(p.name)} ${tags(room,p)}</span>
+        ${myTurn?'<span class="votebadge">뽑기 →</span>':''}
+      </div>`).join('');
+
+    const banner = myTurn
+      ? `<div class="banner turn">🎯 당신(${escapeHtml(nameOf(room,selfId))}) 차례입니다! 팀원을 한 명 뽑으세요.</div>`
+      : `<div class="banner blue">${escapeHtml(nameOf(room, pickerId))} 팀장이 뽑는 중... (${room.turnIndex+1}/${room.totalPicks})</div>`;
+
+    return `
+      ${banner}
+      ${scheduleBar(room)}
+      <div class="hint" style="text-align:center">🅐 = ${escapeHtml(leaderA)} 팀 · 🅑 = ${escapeHtml(leaderB)} 팀</div>
+      ${teamsView(room)}
+      <div class="card">
+        <h3 style="margin-top:0">남은 선수 (${available.length})</h3>
+        <div class="grid">${avail || '<div class="hint">남은 선수가 없어요.</div>'}</div>
+      </div>`;
+  }
+
+  function teamsView(room) {
+    const t0 = room.players.filter(p => p.team === 0);
+    const t1 = room.players.filter(p => p.team === 1);
+    const memb = (arr) => arr.map(p => `
+      <div class="member">
+        <span>${p.role==='leader'?'👑 ':''}${escapeHtml(p.name)} ${p.id===selfId?'<span class="tag you">나</span>':''}</span>
+      </div>`).join('') || '<div class="hint">아직 없음</div>';
+    return `
+      <div class="teams">
+        <div class="team t0"><h3>🅐 ${escapeHtml(nameOf(room,room.leaders[0]))} 팀 <span class="votebadge">(${t0.length})</span></h3>${memb(t0)}</div>
+        <div class="team t1"><h3>🅑 ${escapeHtml(nameOf(room,room.leaders[1]))} 팀 <span class="votebadge">(${t1.length})</span></h3>${memb(t1)}</div>
+      </div>`;
+  }
+
+  function renderResult(room) {
+    const isHost = room.hostId === selfId;
+    return `
+      <div class="banner turn">🎉 팀 구성 완료!</div>
+      ${teamsView(room)}
+      <div class="card row" style="justify-content:center">
+        ${isHost ? '<button class="gold" data-act="reset">대기실로 (다시 하기)</button>'
+                 : '<span class="hint">방장이 다시 시작하기를 기다리는 중...</span>'}
+      </div>`;
+  }
+
+  function bindActions(room) {
+    document.querySelectorAll('[data-act]').forEach(el => el.onclick = () => {
+      const act = el.getAttribute('data-act');
+      if (act === 'leave') { localStorage.removeItem('poro_room'); localStorage.removeItem('poro_token'); }
+      sendMsg({ type: act });
+      if (act === 'leave') location.reload();
+    });
+    document.querySelectorAll('[data-vote]').forEach(el => el.onclick = () =>
+      sendMsg({ type: 'vote', targetId: el.getAttribute('data-vote') }));
+    document.querySelectorAll('[data-pick]').forEach(el => el.onclick = () =>
+      sendMsg({ type: 'pick', targetId: el.getAttribute('data-pick') }));
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+})();
+</script>
+</body>
+</html>
