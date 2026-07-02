@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Poro Draft — 팀장 투표 & 스네이크 드래프트</title>
-<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+<link rel="icon" href="/favicon.png" type="image/png" />
 <style>
   :root {
     --bg: #0f1420;
@@ -27,7 +27,8 @@
     min-height: 100vh;
   }
   .wrap { max-width: 920px; margin: 0 auto; padding: 24px 16px 60px; }
-  h1 { font-size: 26px; margin: 8px 0 4px; text-align: center; }
+  .hero { display: block; width: 100%; max-width: 340px; margin: 4px auto 6px; border-radius: 18px; border: 1px solid var(--line); box-shadow: 0 10px 34px rgba(0,0,0,.4); }
+  h1 { font-size: 28px; letter-spacing: .5px; margin: 6px 0 18px; text-align: center; }
   .sub { text-align: center; color: var(--muted); margin-bottom: 20px; font-size: 14px; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px; margin-bottom: 16px; }
   label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
@@ -86,8 +87,8 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>🦔 Poro Draft</h1>
-  <div class="sub">실시간 팀장 투표 &amp; 스네이크 드래프트 (1 &gt; 2 &gt; 2 &gt; 2 &gt; 1)</div>
+  <img class="hero" src="/poro.png" alt="포로단" />
+  <h1>Poro Draft</h1>
   <div class="err" id="err"></div>
 
   <!-- 참여 화면 -->
