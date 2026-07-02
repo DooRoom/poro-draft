@@ -99,6 +99,7 @@ function publicState(room) {
       id: p.id,
       name: p.name,
       connected: p.connected,
+      device: p.device || 'PC', // 'PC' | 'M'
       role: p.role || null, // 'leader' | 'member' | null
       team: p.team ?? null, // 0 | 1 | null
       votes: counts[p.id] || 0,
@@ -279,6 +280,8 @@ function castVote(room, voterId, targetId) {
 wss.on('connection', (ws) => {
   ws.roomCode = null;
   ws.playerId = null;
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
 
   ws.on('message', (raw) => {
     let msg;
@@ -319,8 +322,22 @@ wss.on('connection', (ws) => {
   });
 });
 
+// 프로토콜 레벨 heartbeat: 응답 없는(죽은) 연결을 10초 주기로 감지해 종료 → close 핸들러가 오프라인 처리
+const HEARTBEAT_MS = 10000;
+const heartbeat = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) return ws.terminate();
+    ws.isAlive = false;
+    try { ws.ping(); } catch {}
+  });
+}, HEARTBEAT_MS);
+wss.on('close', () => clearInterval(heartbeat));
+
 function handleMessage(ws, msg) {
   if (!msg || typeof msg.type !== 'string') return;
+
+  // 앱 레벨 핑퐁: 클라이언트가 "연결됨"을 눈으로 확인하기 위한 왕복 신호
+  if (msg.type === 'ping') return send(ws, { type: 'pong' });
 
   if (msg.type === 'watchLobby') {
     lobbyWatchers.add(ws);
@@ -331,6 +348,7 @@ function handleMessage(ws, msg) {
   if (msg.type === 'join') {
     const code = String(msg.room || '').trim().toLowerCase();
     const name = String(msg.name || '').trim().slice(0, 20);
+    const device = msg.device === 'M' ? 'M' : 'PC';
     if (!code) return send(ws, { type: 'error', message: '방 코드를 입력해 주세요.' });
 
     const room = getRoom(code);
@@ -341,6 +359,7 @@ function handleMessage(ws, msg) {
     if (player) {
       player.connected = true;
       player.ws = ws;
+      player.device = device;
       if (name) player.name = name;
       clearTimeout(player.removeTimer);
       player.removeTimer = null;
@@ -358,6 +377,7 @@ function handleMessage(ws, msg) {
         token: crypto.randomUUID(),
         ws,
         connected: true,
+        device,
         joinIndex: room.joinCounter++,
         role: null,
         team: null,

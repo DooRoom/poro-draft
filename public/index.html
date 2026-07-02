@@ -66,6 +66,21 @@
   .tag.off { background: #3a1f24; color: #ff8a97; }
   .tag.voted { background: #123524; color: #7ff0b5; }
   .tag.notvoted { background: #2a3346; color: #93a1bd; }
+  .tag.dev { background: #22304a; color: #a9c2e8; }
+  /* 실시간 연결 표시등 (우상단 고정) */
+  .conn { position: fixed; top: 10px; right: 10px; z-index: 50; display: flex; align-items: center; gap: 7px;
+    font-size: 12px; font-weight: 700; padding: 6px 11px; border-radius: 999px; border: 1px solid var(--line);
+    background: rgba(24,32,49,.92); }
+  .conn.ok { color: #7ff0b5; }
+  .conn.bad { color: #ffcf8a; }
+  .cdot { width: 9px; height: 9px; border-radius: 50%; background: #35d07f; flex-shrink: 0; }
+  .conn.bad .cdot { background: var(--gold); }
+  .cdot.beat { animation: beat .55s ease; }
+  @keyframes beat {
+    0%   { transform: scale(1);   box-shadow: 0 0 0 0 rgba(53,208,127,.6); }
+    50%  { transform: scale(1.7); }
+    100% { transform: scale(1);   box-shadow: 0 0 0 9px rgba(53,208,127,0); }
+  }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); display: inline-block; }
   .dot.off { background: #5b6577; }
   .votebadge { font-size: 12px; color: var(--muted); }
@@ -96,6 +111,7 @@
 </style>
 </head>
 <body>
+<div id="connBadge" class="conn"><span class="cdot" id="cdot"></span><span id="cText">연결 확인 중…</span></div>
 <div class="wrap">
   <img class="hero" src="/poro.png" alt="포로단" />
   <h1>Poro Draft</h1>
@@ -129,6 +145,8 @@
   const $ = (id) => document.getElementById(id);
   let ws, selfId = null, token = localStorage.getItem('poro_token') || null;
   let lastRoom = null;
+  let lastPongAt = 0;
+  const DEVICE = /Mobi|Android|iPhone|iPad|iPod|Windows Phone/i.test(navigator.userAgent) ? 'M' : 'PC';
 
   const err = $('err');
   function showErr(m) { err.textContent = m; setTimeout(() => { if (err.textContent === m) err.textContent = ''; }, 3500); }
@@ -143,8 +161,10 @@
       const savedRoom = localStorage.getItem('poro_room');
       const savedName = localStorage.getItem('poro_name');
       if (savedRoom && token) {
-        ws.send(JSON.stringify({ type: 'join', room: savedRoom, name: savedName || '', token }));
+        ws.send(JSON.stringify({ type: 'join', room: savedRoom, name: savedName || '', token, device: DEVICE }));
       }
+      lastPongAt = Date.now();
+      updateConnBadge();
     };
     ws.onmessage = (ev) => {
       const msg = JSON.parse(ev.data);
@@ -160,6 +180,8 @@
         render(msg.room);
       } else if (msg.type === 'lobby') {
         renderRoomList(msg.rooms);
+      } else if (msg.type === 'pong') {
+        onPong();
       } else if (msg.type === 'error') {
         showErr(msg.message);
       }
@@ -167,6 +189,23 @@
     ws.onclose = () => { showErr('서버 연결이 끊겼어요. 재연결 시도 중...'); setTimeout(connect, 1500); };
   }
   connect();
+
+  // 실시간 연결 표시등: 4초마다 핑 → 서버가 퐁으로 응답하면 표시등이 맥박처럼 깜빡
+  function onPong() {
+    lastPongAt = Date.now();
+    const d = $('cdot');
+    if (d) { d.classList.remove('beat'); void d.offsetWidth; d.classList.add('beat'); }
+    updateConnBadge();
+  }
+  function updateConnBadge() {
+    const el = $('connBadge'); if (!el) return;
+    const open = ws && ws.readyState === WebSocket.OPEN;
+    const fresh = Date.now() - lastPongAt < 9000;
+    if (open && fresh) { el.className = 'conn ok'; $('cText').textContent = '실시간 연결됨'; }
+    else { el.className = 'conn bad'; $('cText').textContent = '재연결 중…'; }
+  }
+  setInterval(() => sendMsg({ type: 'ping' }), 4000);
+  setInterval(updateConnBadge, 1000);
 
   // 투표 카운트다운을 매초 갱신 (서버 votingEndsAt 기준)
   setInterval(() => {
@@ -183,7 +222,7 @@
     if (!room) return showErr('방 코드를 입력해 주세요.');
     if (!name) return showErr('이름을 입력해 주세요.');
     localStorage.setItem('poro_name', name);
-    sendMsg({ type: 'join', room, name, token });
+    sendMsg({ type: 'join', room, name, token, device: DEVICE });
   };
   $('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('joinBtn').click(); });
   $('roomInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('joinBtn').click(); });
@@ -209,7 +248,7 @@
       const name = $('nameInput').value.trim();
       if (!name) { showErr('먼저 이름을 입력해 주세요.'); $('nameInput').focus(); return; }
       localStorage.setItem('poro_name', name);
-      sendMsg({ type: 'join', room: code, name, token });
+      sendMsg({ type: 'join', room: code, name, token, device: DEVICE });
     });
   }
 
@@ -233,6 +272,7 @@
   function nameOf(room, id) { const p = room.players.find(x=>x.id===id); return p ? p.name : '?'; }
   function tags(room, p) {
     let t = '';
+    if (p.device) t += `<span class="tag dev">${p.device === 'M' ? '📱 M' : '💻 PC'}</span>`;
     if (p.id === room.hostId) t += '<span class="tag host">방장</span>';
     if (p.id === selfId) t += '<span class="tag you">나</span>';
     if (!p.connected) t += '<span class="tag off">오프라인</span>';
