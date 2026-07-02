@@ -53,7 +53,13 @@
     padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 8px;
   }
   .pill .name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
-  .tag { font-size: 11px; padding: 2px 7px; border-radius: 999px; font-weight: 700; }
+  .tag { font-size: 11px; padding: 2px 7px; border-radius: 999px; font-weight: 700; white-space: nowrap; }
+  /* 방 목록: 한 줄에 하나씩 꽉 차게 */
+  .roomlist { display: flex; flex-direction: column; gap: 10px; }
+  .roomlist .name { min-width: 0; flex: 1; overflow: hidden; }
+  .roomlist .rc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .roomlist .tag { flex-shrink: 0; }
+  .roomlist button { white-space: nowrap; flex-shrink: 0; padding: 10px 16px; }
   .tag.host { background: #3a2f00; color: var(--gold); }
   .tag.you { background: #10314f; color: #7db4ff; }
   .tag.off { background: #3a1f24; color: #ff8a97; }
@@ -103,7 +109,7 @@
     <div class="hint">10명이 모이면 방장이 시작할 수 있어요. 아래 <b>열린 방</b>을 눌러 바로 참여할 수도 있어요.</div>
     <div id="roomListWrap" style="margin-top:20px;">
       <label>열려있는 방 (실시간)</label>
-      <div id="roomList" class="grid"></div>
+      <div id="roomList" class="roomlist"></div>
     </div>
   </div>
 
@@ -185,7 +191,7 @@
       const btn = r.joinable
         ? `<button data-join="${escapeHtml(r.code)}">참여하기</button>`
         : `<button disabled>${r.phase === 'lobby' ? '만원' : '진행중'}</button>`;
-      return `<div class="pill"><span class="name">${escapeHtml(r.code)} ${badge}</span>${btn}</div>`;
+      return `<div class="pill"><span class="name"><span class="rc">${escapeHtml(r.code)}</span> ${badge}</span>${btn}</div>`;
     }).join('');
     el.querySelectorAll('[data-join]').forEach((b) => b.onclick = () => {
       const code = b.getAttribute('data-join');
