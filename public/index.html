@@ -134,8 +134,10 @@
 <body>
 <div id="connBadge" class="conn"><span class="cdot" id="cdot"></span><span id="cText">연결 확인 중…</span></div>
 <div class="wrap">
-  <img class="hero" src="/poro.png" alt="포로단" />
-  <h1>Poro Draft</h1>
+  <div id="brand">
+    <img class="hero" src="/poro.png" alt="포로단" />
+    <h1>Poro Draft</h1>
+  </div>
   <div class="err" id="err"></div>
 
   <!-- 참여 화면 -->
@@ -215,11 +217,13 @@
   // ---- 화면 전환 ----
   function showJoinScreen() {
     joined = false;
+    $('brand').style.display = '';       // 참여 화면에서만 로고+타이틀 노출
     $('joinCard').style.display = 'block';
     $('app').style.display = 'none';
   }
   function showGameScreen() {
     joined = true;
+    $('brand').style.display = 'none';   // 방 진입 후엔 숨겨 세로 공간 확보
     $('joinCard').style.display = 'none';
     $('app').style.display = 'block';
   }
@@ -445,7 +449,6 @@
         <span class="vt-label">남은 시간</span>
         <span class="vt-num ${low?'low':''}" id="voteTimer">${remain ?? '-'}</span><span class="vt-unit">초</span>
       </div>
-      <div class="banner blue" style="margin-bottom:12px">팀장이 될 사람에게 투표하세요! 최다 득표 2명이 팀장이 됩니다.</div>
       <div class="reveal rank2"><div class="who">${topCards}</div></div>
       <div class="card">
         <div class="row" style="justify-content:space-between;margin-bottom:10px">
