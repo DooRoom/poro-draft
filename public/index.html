@@ -92,7 +92,7 @@
   .banner.blue { background: #12294d; color: #9cc2ff; }
   .banner.turn { background: #133524; color: #7ff0b5; }
   .banner.off { background: #3a2a12; color: #ffcf8a; }
-  .teams { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; margin-bottom: 12px; }
+  .teams { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; margin: 16px 0 12px; }
   .team { border-radius: 12px; padding: 12px 12px 8px; border: 1px solid var(--line); }
   .team.t0 { background: linear-gradient(180deg, #10233f, var(--panel)); border-color: #274a86; }
   .team.t1 { background: linear-gradient(180deg, #3a1620, var(--panel)); border-color: #7a2f3c; }
@@ -119,6 +119,16 @@
   .reveal .who .a { background: linear-gradient(180deg, #10233f, var(--panel)); border-color:#274a86; }
   .reveal .who .b { background: linear-gradient(180deg, #3a1620, var(--panel)); border-color:#7a2f3c; }
   .reveal .who .lname { font-size: 22px; font-weight: 800; margin-top: 6px; word-break: keep-all; }
+  /* 투표: 큰 남은시간 타이머 */
+  .votetimer { text-align:center; margin: 4px 0 12px; line-height: 1; }
+  .votetimer .vt-label { display:block; font-size: 12px; color: var(--muted); margin-bottom: 2px; font-weight:700; letter-spacing:.5px; }
+  .votetimer .vt-num { font-size: 60px; font-weight: 900; color: var(--gold); font-variant-numeric: tabular-nums; }
+  .votetimer .vt-unit { font-size: 20px; color: var(--muted); margin-left: 4px; }
+  .votetimer .vt-num.low { color: var(--red); }
+  /* 투표 상단 1·2위 요약 */
+  .rank2 .who { margin: 6px 0 4px; }
+  .rank2 .card2 { padding: 14px; }
+  .rank2 .lname { font-size: 20px; }
 </style>
 </head>
 <body>
@@ -273,7 +283,9 @@
     if (!lastRoom) return;
     const vt = $('voteTimer');
     if (vt && lastRoom.phase === 'voting' && lastRoom.votingEndsAt) {
-      vt.textContent = Math.max(0, Math.min(99, Math.ceil((lastRoom.votingEndsAt - Date.now()) / 1000)));
+      const s = Math.max(0, Math.min(99, Math.ceil((lastRoom.votingEndsAt - Date.now()) / 1000)));
+      vt.textContent = s;
+      vt.classList.toggle('low', s <= 5);
     }
     const rt = $('revealTimer');
     if (rt && lastRoom.phase === 'reveal' && lastRoom.revealEndsAt) {
@@ -401,33 +413,47 @@
 
   function renderVoting(room) {
     const myVote = room.votes[selfId];
-    const voted = room.players
-      .slice().sort((a,b)=> b.votes - a.votes)
-      .map(p => {
-        const mine = myVote === p.id;
-        const isSelf = p.id === selfId;
-        const hasVoted = !!room.votes[p.id];
-        const voteTag = hasVoted
-          ? '<span class="tag voted">투표함</span>'
-          : '<span class="tag notvoted">미투표</span>';
-        return `
+    const remain = voteRemain(room);
+    const low = remain != null && remain <= 5;
+
+    // 현재 1·2위 (동점이면 먼저 들어온 순) — 상단 요약. 이 부분만 실시간으로 바뀐다.
+    const ranked = room.players.slice().sort((a,b) => (b.votes - a.votes) || (a.joinIndex - b.joinIndex));
+    const topCards = ranked.slice(0, 2).map((p, i) => `
+      <div class="card2 ${i===0?'a':'b'}">
+        <div class="votebadge">${i===0?'🥇 현재 1위':'🥈 현재 2위'} · ${p.votes}표</div>
+        <div class="lname">${escapeHtml(p.name)}</div>
+      </div>`).join('');
+
+    // 전체 리스트: 입장 순 고정(정렬하지 않음) → 표가 들어와도 행 위치가 바뀌지 않음
+    const list = room.players.map(p => {
+      const mine = myVote === p.id;
+      const isSelf = p.id === selfId;
+      const hasVoted = !!room.votes[p.id];
+      const voteTag = hasVoted
+        ? '<span class="tag voted">투표함</span>'
+        : '<span class="tag notvoted">미투표</span>';
+      return `
         <div class="pill ${isSelf?'':'selectable'}" ${isSelf?'':`data-vote="${p.id}"`}
              style="${mine?'border-color:var(--gold)':''}">
           <span class="name"><span class="dot ${p.connected?'':'off'}"></span><span class="pname">${escapeHtml(p.name)}</span> ${tags(room,p)} ${voteTag}</span>
           <span class="votebadge">${p.votes}표 ${mine?'✅':''}</span>
         </div>`;
-      }).join('');
-    const remain = voteRemain(room);
+    }).join('');
+
     return `
-      <div class="banner blue">팀장이 될 사람에게 투표하세요! 최다 득표 2명이 팀장이 됩니다.<br>
-        ⏱ 남은 시간 <b id="voteTimer">${remain ?? '-'}</b>초 (0초가 되면 현재 득표로 확정)</div>
+      <div class="votetimer">
+        <span class="vt-label">남은 시간</span>
+        <span class="vt-num ${low?'low':''}" id="voteTimer">${remain ?? '-'}</span><span class="vt-unit">초</span>
+      </div>
+      <div class="banner blue" style="margin-bottom:12px">팀장이 될 사람에게 투표하세요! 최다 득표 2명이 팀장이 됩니다.</div>
+      <div class="reveal rank2"><div class="who">${topCards}</div></div>
       <div class="card">
         <div class="row" style="justify-content:space-between;margin-bottom:10px">
           <span class="votebadge">투표 완료 ${room.votedCount} / ${room.players.length}</span>
           <span class="votebadge">${myVote ? '나의 선택: '+escapeHtml(nameOf(room,myVote)) : '아직 투표 안 함'}</span>
         </div>
-        <div class="grid">${voted}</div>
-        <div class="hint">제한시간(30초)이 끝나면 현재 득표 기준으로 팀장이 확정돼요. 마감 전까지 자유롭게 바꿔 찍을 수 있어요. (자신에게는 투표 불가)</div>
+        <div class="grid">${list}</div>
+        <div class="hint">제한시간이 끝나면 현재 득표 기준으로 팀장이 확정돼요. 마감 전까지 자유롭게 바꿔 찍을 수 있어요. (자신에게는 투표 불가)</div>
       </div>`;
   }
 
