@@ -92,12 +92,13 @@
   .banner.blue { background: #12294d; color: #9cc2ff; }
   .banner.turn { background: #133524; color: #7ff0b5; }
   .banner.off { background: #3a2a12; color: #ffcf8a; }
-  .teams { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-  .team { border-radius: 12px; padding: 14px; border: 1px solid var(--line); }
+  .teams { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; margin-bottom: 12px; }
+  .team { border-radius: 12px; padding: 12px 12px 8px; border: 1px solid var(--line); }
   .team.t0 { background: linear-gradient(180deg, #10233f, var(--panel)); border-color: #274a86; }
   .team.t1 { background: linear-gradient(180deg, #3a1620, var(--panel)); border-color: #7a2f3c; }
   .team h3 { margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
   .team .member { padding: 8px 10px; background: rgba(255,255,255,.04); border-radius: 8px; margin-bottom: 6px; display:flex; justify-content:space-between; gap: 6px; }
+  .team .member:last-child { margin-bottom: 0; }
   .team .member > span { min-width: 0; overflow: hidden; display: flex; align-items: center; gap: 4px; }
   .step { display: flex; gap: 6px; justify-content: center; margin: 4px 0 16px; flex-wrap: wrap; }
   .step span { font-size: 12px; color: var(--muted); padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); }
@@ -417,17 +418,16 @@
         </div>`;
       }).join('');
     const remain = voteRemain(room);
-    const allVoted = room.votedCount >= room.players.length;
     return `
       <div class="banner blue">팀장이 될 사람에게 투표하세요! 최다 득표 2명이 팀장이 됩니다.<br>
-        ⏱ 남은 시간 <b id="voteTimer">${remain ?? '-'}</b>초 ${allVoted?'(전원 투표 완료 — 곧 확정)':'(0초가 되면 현재 득표로 확정)'}</div>
+        ⏱ 남은 시간 <b id="voteTimer">${remain ?? '-'}</b>초 (0초가 되면 현재 득표로 확정)</div>
       <div class="card">
         <div class="row" style="justify-content:space-between;margin-bottom:10px">
           <span class="votebadge">투표 완료 ${room.votedCount} / ${room.players.length}</span>
           <span class="votebadge">${myVote ? '나의 선택: '+escapeHtml(nameOf(room,myVote)) : '아직 투표 안 함'}</span>
         </div>
         <div class="grid">${voted}</div>
-        <div class="hint">전원 투표하거나 시간이 다 되면 팀장이 확정돼요. 확정 전까지는 자유롭게 바꿔 찍을 수 있어요. (자신에게는 투표 불가)</div>
+        <div class="hint">제한시간(30초)이 끝나면 현재 득표 기준으로 팀장이 확정돼요. 마감 전까지 자유롭게 바꿔 찍을 수 있어요. (자신에게는 투표 불가)</div>
       </div>`;
   }
 
@@ -463,8 +463,6 @@
     const myTurn = pickerId === selfId;
     const picker = room.players.find(p => p.id === pickerId);
     const pickerOffline = picker && !picker.connected;
-    const leaderA = nameOf(room, room.leaders[0]);
-    const leaderB = nameOf(room, room.leaders[1]);
     const available = room.players.filter(p => !p.role);
     const avail = available.map(p => `
       <div class="pill ${myTurn?'selectable':''}" ${myTurn?`data-pick="${p.id}"`:''}>
@@ -481,7 +479,6 @@
     return `
       ${banner}
       ${scheduleBar(room)}
-      <div class="hint" style="text-align:center">🅐 = ${escapeHtml(leaderA)} 팀 · 🅑 = ${escapeHtml(leaderB)} 팀</div>
       ${teamsView(room)}
       <div class="card">
         <h3 style="margin-top:0">남은 선수 (${available.length})</h3>

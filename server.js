@@ -19,8 +19,7 @@ const express = require('express');
 
 const PORT = process.env.PORT || 3000;
 const TARGET = 10; // 방을 시작하는 데 필요한 인원 (팀장 2 + 팀원 8)
-const VOTE_SECONDS = Number(process.env.VOTE_SECONDS) || 30; // 팀장 투표 제한시간
-const SETTLE_SECONDS = Number(process.env.SETTLE_SECONDS) || 4; // 전원 투표 완료 후 결과 확정까지 정산 시간
+const VOTE_SECONDS = Number(process.env.VOTE_SECONDS) || 30; // 팀장 투표 제한시간 (전원 투표해도 항상 이 시간 동안 진행)
 const REVEAL_SECONDS = Number(process.env.REVEAL_SECONDS) || 3; // 팀장 공개 후 드래프트 진입까지
 const LOBBY_OFFLINE_SECONDS = Number(process.env.LOBBY_OFFLINE_SECONDS) || 30; // 대기실에서 끊긴 사람 자동 퇴장까지 유예
 const DRAFT_OFFLINE_SECONDS = Number(process.env.DRAFT_OFFLINE_SECONDS) || 12; // 드래프트에서 팀장이 오프라인이면 자동 픽까지 대기
@@ -240,16 +239,8 @@ function castVote(room, voterId, targetId) {
   if (voterId === targetId) return { error: '자기 자신에게는 투표할 수 없어요.' };
 
   room.votes[voterId] = targetId;
-
-  // 전원 투표 완료 → 즉시 점프하지 않고 짧은 정산(SETTLE) 후 확정.
-  // 최종 득표를 눈으로 확인할 여유를 준다. (남은 시간이 더 길면 앞당김)
-  if (Object.keys(room.votes).length >= room.players.length) {
-    const settleAt = now() + SETTLE_SECONDS * 1000;
-    if (!room.votingEndsAt || settleAt < room.votingEndsAt) {
-      room.votingEndsAt = settleAt;
-      scheduleVoteEnd(room);
-    }
-  }
+  // 전원이 투표해도 즉시 종료하지 않는다. 항상 제한시간(VOTE_SECONDS)이 지나야 확정 →
+  // 마감 전까지 자유롭게 바꿔 찍을 여유를 보장한다.
   return {};
 }
 
