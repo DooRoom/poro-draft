@@ -111,6 +111,13 @@
   .schedule .slot.done0 { background:#1a3a6b; }
   .schedule .slot.done1 { background:#6b1f2c; }
   .schedule .slot.now { outline: 2px solid var(--gold); }
+  /* 팀장 공개(reveal) */
+  .reveal { text-align:center; padding: 10px 0 4px; }
+  .reveal .who { display:flex; gap:16px; justify-content:center; flex-wrap:wrap; margin: 14px 0; }
+  .reveal .who .card2 { flex:1; min-width: 140px; max-width: 260px; border-radius:14px; padding:18px; border:1px solid var(--line); }
+  .reveal .who .a { background: linear-gradient(180deg, #10233f, var(--panel)); border-color:#274a86; }
+  .reveal .who .b { background: linear-gradient(180deg, #3a1620, var(--panel)); border-color:#7a2f3c; }
+  .reveal .who .lname { font-size: 22px; font-weight: 800; margin-top: 6px; word-break: keep-all; }
 </style>
 </head>
 <body>
@@ -146,139 +153,204 @@
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
-  let ws, selfId = null, token = localStorage.getItem('poro_token') || null;
-  let lastRoom = null;
-  let lastPongAt = 0;
   const DEVICE = /Mobi|Android|iPhone|iPad|iPod|Windows Phone/i.test(navigator.userAgent) ? 'M' : 'PC';
+
+  let selfId = null;
+  let token = localStorage.getItem('poro_token') || null;
+  let roomCode = localStorage.getItem('poro_room') || null;
+  let joined = false;
+
+  let lastRoom = null;
+  let renderedRev = -1;   // 마지막으로 화면에 그린 상태 rev
+  let lobbyRev = 0;       // 마지막으로 받은 방 목록 rev
+  let lastOkAt = 0;       // 마지막으로 성공한 폴링 시각 (연결 표시등용)
+
+  const STATE_MS = 1200;  // 게임 중 상태 폴링 주기
+  const LOBBY_MS = 1500;  // 참여 화면 방 목록 폴링 주기
 
   const err = $('err');
   function showErr(m) { err.textContent = m; setTimeout(() => { if (err.textContent === m) err.textContent = ''; }, 3500); }
 
-  function connect() {
-    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(proto + '://' + location.host);
-    ws.onopen = () => {
-      // 참여 화면 방 목록 실시간 구독
-      ws.send(JSON.stringify({ type: 'watchLobby' }));
-      // 새로고침 후 자동 재접속
-      const savedRoom = localStorage.getItem('poro_room');
-      const savedName = localStorage.getItem('poro_name');
-      if (savedRoom && token) {
-        ws.send(JSON.stringify({ type: 'join', room: savedRoom, name: savedName || '', token, device: DEVICE }));
-      }
-      lastPongAt = Date.now();
-      updateConnBadge();
-    };
-    ws.onmessage = (ev) => {
-      const msg = JSON.parse(ev.data);
-      if (msg.type === 'joined') {
-        selfId = msg.selfId;
-        token = msg.token;
-        localStorage.setItem('poro_token', token);
-        localStorage.setItem('poro_room', msg.code);
-        $('joinCard').style.display = 'none';
-        $('app').style.display = 'block';
-      } else if (msg.type === 'state') {
-        lastRoom = msg.room;
-        render(msg.room);
-      } else if (msg.type === 'lobby') {
-        renderRoomList(msg.rooms);
-      } else if (msg.type === 'pong') {
-        onPong();
-      } else if (msg.type === 'error') {
-        showErr(msg.message);
-      }
-    };
-    ws.onclose = () => { showErr('서버 연결이 끊겼어요. 재연결 시도 중...'); setTimeout(connect, 1500); };
+  // ---- HTTP 헬퍼 ----
+  async function apiGet(url) {
+    const r = await fetch(url, { cache: 'no-store' });
+    if (!r.ok) throw new Error('http ' + r.status);
+    return r.json();
   }
-  connect();
+  async function apiPost(url, body) {
+    const r = await fetch(url, {
+      method: 'POST', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error('http ' + r.status);
+    return r.json();
+  }
 
-  // 실시간 연결 표시등: 4초마다 핑 → 서버가 퐁으로 응답하면 표시등이 맥박처럼 깜빡
-  function onPong() {
-    lastPongAt = Date.now();
+  function markOk() {
+    lastOkAt = Date.now();
     const d = $('cdot');
     if (d) { d.classList.remove('beat'); void d.offsetWidth; d.classList.add('beat'); }
     updateConnBadge();
   }
   function updateConnBadge() {
     const el = $('connBadge'); if (!el) return;
-    const open = ws && ws.readyState === WebSocket.OPEN;
-    const fresh = Date.now() - lastPongAt < 9000;
-    if (open && fresh) { el.className = 'conn ok'; $('cText').textContent = '실시간 연결됨'; }
+    const fresh = Date.now() - lastOkAt < 4000;
+    if (fresh) { el.className = 'conn ok'; $('cText').textContent = '실시간 연결됨'; }
     else { el.className = 'conn bad'; $('cText').textContent = '재연결 중…'; }
   }
-  setInterval(() => sendMsg({ type: 'ping' }), 4000);
-  setInterval(() => {
-    updateConnBadge();
-    // 자가 복구: 화면이 보이는데 12초간 퐁이 없으면 소켓이 죽은 것으로 보고 재연결(새로고침 불필요)
-    if (document.visibilityState === 'visible' && ws && ws.readyState === WebSocket.OPEN && Date.now() - lastPongAt > 12000) {
-      try { ws.close(); } catch {}
+  setInterval(updateConnBadge, 1000);
+
+  // ---- 화면 전환 ----
+  function showJoinScreen() {
+    joined = false;
+    $('joinCard').style.display = 'block';
+    $('app').style.display = 'none';
+  }
+  function showGameScreen() {
+    joined = true;
+    $('joinCard').style.display = 'none';
+    $('app').style.display = 'block';
+  }
+
+  // ---- 상태 폴링 ----
+  let statePolling = false;
+  async function pollState() {
+    if (!joined || !roomCode || !token || statePolling) return;
+    statePolling = true;
+    try {
+      const data = await apiGet(`/api/state?room=${encodeURIComponent(roomCode)}&token=${encodeURIComponent(token)}&rev=${renderedRev}`);
+      markOk();
+      if (data.gone) { // 자리가 사라짐 → 참여 화면으로
+        localStorage.removeItem('poro_room');
+        roomCode = null; joined = false; renderedRev = -1;
+        showJoinScreen();
+        return;
+      }
+      if (data.unchanged) return;
+      if (data.room) {
+        lastRoom = data.room;
+        renderedRev = data.rev;
+        render(data.room);
+      }
+    } catch (e) {
+      updateConnBadge();
+    } finally {
+      statePolling = false;
     }
-  }, 1000);
-  // 탭이 다시 보이면 즉시 연결 확인/복구
+  }
+
+  // ---- 방 목록 폴링 ----
+  let lobbyPolling = false;
+  async function pollLobby() {
+    if (joined || lobbyPolling) return;
+    lobbyPolling = true;
+    try {
+      const data = await apiGet(`/api/lobby?rev=${lobbyRev}`);
+      markOk();
+      if (data.unchanged) return;
+      lobbyRev = data.rev;
+      renderRoomList(data.rooms);
+    } catch (e) {
+      updateConnBadge();
+    } finally {
+      lobbyPolling = false;
+    }
+  }
+
+  setInterval(pollState, STATE_MS);
+  setInterval(pollLobby, LOBBY_MS);
+
+  // 탭이 다시 보이면 즉시 갱신
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible') return;
-    if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) connect();
-    else sendMsg({ type: 'ping' });
+    if (joined) pollState(); else pollLobby();
   });
 
-  // 투표 카운트다운을 매초 갱신 (서버 votingEndsAt 기준)
+  // 투표/공개 카운트다운을 매초 갱신 (서버 시각 기준)
   setInterval(() => {
-    const el = document.getElementById('voteTimer');
-    if (!el || !lastRoom || lastRoom.phase !== 'voting' || !lastRoom.votingEndsAt) return;
-    el.textContent = Math.max(0, Math.min(99, Math.ceil((lastRoom.votingEndsAt - Date.now()) / 1000)));
+    if (!lastRoom) return;
+    const vt = $('voteTimer');
+    if (vt && lastRoom.phase === 'voting' && lastRoom.votingEndsAt) {
+      vt.textContent = Math.max(0, Math.min(99, Math.ceil((lastRoom.votingEndsAt - Date.now()) / 1000)));
+    }
+    const rt = $('revealTimer');
+    if (rt && lastRoom.phase === 'reveal' && lastRoom.revealEndsAt) {
+      rt.textContent = Math.max(0, Math.ceil((lastRoom.revealEndsAt - Date.now()) / 1000));
+    }
   }, 250);
 
-  function sendMsg(obj) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj)); }
-
-  $('joinBtn').onclick = () => {
-    const room = $('roomInput').value.trim();
-    const name = $('nameInput').value.trim();
+  // ---- 참여 / 액션 ----
+  async function doJoin(room, name) {
     if (!room) return showErr('방 코드를 입력해 주세요.');
     if (!name) return showErr('이름을 입력해 주세요.');
     localStorage.setItem('poro_name', name);
-    sendMsg({ type: 'join', room, name, token, device: DEVICE });
-  };
+    try {
+      const data = await apiPost('/api/join', { room, name, token, device: DEVICE });
+      markOk();
+      if (data.error) return showErr(data.error);
+      selfId = data.selfId;
+      token = data.token;
+      roomCode = data.code;
+      renderedRev = -1;
+      localStorage.setItem('poro_token', token);
+      localStorage.setItem('poro_room', roomCode);
+      showGameScreen();
+      pollState();
+    } catch (e) {
+      showErr('참여에 실패했어요. 잠시 후 다시 시도해 주세요.');
+    }
+  }
+
+  async function doAction(type, extra) {
+    try {
+      const data = await apiPost('/api/action', Object.assign({ room: roomCode, token, type }, extra || {}));
+      markOk();
+      if (data.error) return showErr(data.error);
+      pollState();
+    } catch (e) {
+      showErr('요청에 실패했어요. 다시 시도해 주세요.');
+    }
+  }
+
+  $('joinBtn').onclick = () => doJoin($('roomInput').value.trim(), $('nameInput').value.trim());
   $('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('joinBtn').click(); });
   $('roomInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('joinBtn').click(); });
 
-  // 참여 화면: 열려있는 방 목록 렌더
-  function renderRoomList(list) {
-    const el = $('roomList');
-    if (!list || !list.length) {
-      el.innerHTML = '<div class="hint">아직 열린 방이 없어요. 위에서 방 코드를 입력해 새로 만드세요.</div>';
-      return;
+  // ---- 시작: 저장된 세션이 있으면 저장된 토큰으로 재접속 시도 ----
+  (async () => {
+    if (roomCode && token) {
+      try {
+        const rj = await apiPost('/api/join', { room: roomCode, name: localStorage.getItem('poro_name') || '', token, device: DEVICE });
+        markOk();
+        if (rj.ok) {
+          selfId = rj.selfId; token = rj.token; roomCode = rj.code; renderedRev = -1;
+          localStorage.setItem('poro_token', token);
+          localStorage.setItem('poro_room', roomCode);
+          showGameScreen();
+          pollState();
+          return;
+        }
+      } catch (e) {}
     }
-    el.innerHTML = list.map((r) => {
-      const badge = r.phase === 'lobby'
-        ? `<span class="tag you">대기중 ${r.connected}/${r.target}</span>`
-        : `<span class="tag off">진행중</span>`;
-      const btn = r.joinable
-        ? `<button data-join="${escapeHtml(r.code)}">참여하기</button>`
-        : `<button disabled>${r.phase === 'lobby' ? '만원' : '진행중'}</button>`;
-      return `<div class="pill"><span class="name"><span class="rc">${escapeHtml(r.code)}</span> ${badge}</span>${btn}</div>`;
-    }).join('');
-    el.querySelectorAll('[data-join]').forEach((b) => b.onclick = () => {
-      const code = b.getAttribute('data-join');
-      const name = $('nameInput').value.trim();
-      if (!name) { showErr('먼저 이름을 입력해 주세요.'); $('nameInput').focus(); return; }
-      localStorage.setItem('poro_name', name);
-      sendMsg({ type: 'join', room: code, name, token, device: DEVICE });
-    });
-  }
+    showJoinScreen();
+    pollLobby();
+  })();
 
+  // ================= 렌더링 =================
   const PICK_ORDER = [0,1,1,0,0,1,1,0];
-  const PHASES = { lobby:'대기실', voting:'투표', draft:'드래프트', result:'결과' };
+  const PHASES = { lobby:'대기실', voting:'투표', reveal:'팀장확정', draft:'드래프트', result:'결과' };
 
   function render(room) {
-    // 단계 표시
-    $('steps').innerHTML = ['lobby','voting','draft','result'].map(p =>
-      `<span class="${room.phase===p?'active':''}">${PHASES[p]}</span>`).join('');
+    $('steps').innerHTML = ['lobby','voting','draft','result'].map(p => {
+      const active = room.phase === p || (p === 'voting' && room.phase === 'reveal');
+      return `<span class="${active?'active':''}">${PHASES[p]}</span>`;
+    }).join('');
 
     const area = $('phaseArea');
     if (room.phase === 'lobby') area.innerHTML = renderLobby(room);
     else if (room.phase === 'voting') area.innerHTML = renderVoting(room);
+    else if (room.phase === 'reveal') area.innerHTML = renderReveal(room);
     else if (room.phase === 'draft') area.innerHTML = renderDraft(room);
     else if (room.phase === 'result') area.innerHTML = renderResult(room);
 
@@ -345,18 +417,37 @@
         </div>`;
       }).join('');
     const remain = voteRemain(room);
+    const allVoted = room.votedCount >= room.players.length;
     return `
       <div class="banner blue">팀장이 될 사람에게 투표하세요! 최다 득표 2명이 팀장이 됩니다.<br>
-        ⏱ 남은 시간 <b id="voteTimer">${remain ?? '-'}</b>초 (0초가 되면 현재 득표로 바로 확정)</div>
+        ⏱ 남은 시간 <b id="voteTimer">${remain ?? '-'}</b>초 ${allVoted?'(전원 투표 완료 — 곧 확정)':'(0초가 되면 현재 득표로 확정)'}</div>
       <div class="card">
         <div class="row" style="justify-content:space-between;margin-bottom:10px">
           <span class="votebadge">투표 완료 ${room.votedCount} / ${room.players.length}</span>
           <span class="votebadge">${myVote ? '나의 선택: '+escapeHtml(nameOf(room,myVote)) : '아직 투표 안 함'}</span>
         </div>
         <div class="grid">${voted}</div>
-        <div class="hint">전원 투표하거나 시간이 다 되면 팀장이 확정되고 드래프트가 시작돼요. (자신에게는 투표 불가, 바꿔 찍기 가능)</div>
+        <div class="hint">전원 투표하거나 시간이 다 되면 팀장이 확정돼요. 확정 전까지는 자유롭게 바꿔 찍을 수 있어요. (자신에게는 투표 불가)</div>
       </div>`;
   }
+
+  function renderReveal(room) {
+    const remain = room.revealEndsAt ? Math.max(0, Math.ceil((room.revealEndsAt - Date.now())/1000)) : 0;
+    const a = nameOf(room, room.leaders[0]);
+    const b = nameOf(room, room.leaders[1]);
+    const ca = (voteCountOf(room, room.leaders[0]));
+    const cb = (voteCountOf(room, room.leaders[1]));
+    return `
+      <div class="banner turn">🎉 팀장이 확정되었습니다!</div>
+      <div class="card reveal">
+        <div class="who">
+          <div class="card2 a"><div class="votebadge">🅐 팀장 · ${ca}표</div><div class="lname">${escapeHtml(a)}</div></div>
+          <div class="card2 b"><div class="votebadge">🅑 팀장 · ${cb}표</div><div class="lname">${escapeHtml(b)}</div></div>
+        </div>
+        <div class="hint"><b id="revealTimer">${remain}</b>초 후 드래프트가 시작됩니다…</div>
+      </div>`;
+  }
+  function voteCountOf(room, id) { const p = room.players.find(x=>x.id===id); return p ? p.votes : 0; }
 
   function scheduleBar(room) {
     return `<div class="schedule">` + PICK_ORDER.map((s,i)=>{
@@ -426,14 +517,42 @@
   function bindActions(room) {
     document.querySelectorAll('[data-act]').forEach(el => el.onclick = () => {
       const act = el.getAttribute('data-act');
-      if (act === 'leave') { localStorage.removeItem('poro_room'); localStorage.removeItem('poro_token'); }
-      sendMsg({ type: act });
-      if (act === 'leave') location.reload();
+      if (act === 'leave') {
+        localStorage.removeItem('poro_room'); localStorage.removeItem('poro_token');
+        doAction('leave');
+        roomCode = null; token = null; joined = false;
+        setTimeout(() => location.reload(), 150);
+        return;
+      }
+      doAction(act);
     });
     document.querySelectorAll('[data-vote]').forEach(el => el.onclick = () =>
-      sendMsg({ type: 'vote', targetId: el.getAttribute('data-vote') }));
+      doAction('vote', { targetId: el.getAttribute('data-vote') }));
     document.querySelectorAll('[data-pick]').forEach(el => el.onclick = () =>
-      sendMsg({ type: 'pick', targetId: el.getAttribute('data-pick') }));
+      doAction('pick', { targetId: el.getAttribute('data-pick') }));
+  }
+
+  function renderRoomList(list) {
+    const el = $('roomList');
+    if (!list || !list.length) {
+      el.innerHTML = '<div class="hint">아직 열린 방이 없어요. 아래에서 방 코드를 입력해 새로 만드세요.</div>';
+      return;
+    }
+    el.innerHTML = list.map((r) => {
+      const badge = r.phase === 'lobby'
+        ? `<span class="tag you">대기중 ${r.connected}/${r.target}</span>`
+        : `<span class="tag off">진행중</span>`;
+      const btn = r.joinable
+        ? `<button data-join="${escapeHtml(r.code)}">참여하기</button>`
+        : `<button disabled>${r.phase === 'lobby' ? '만원' : '진행중'}</button>`;
+      return `<div class="pill"><span class="name"><span class="rc">${escapeHtml(r.code)}</span> ${badge}</span>${btn}</div>`;
+    }).join('');
+    el.querySelectorAll('[data-join]').forEach((b) => b.onclick = () => {
+      const code = b.getAttribute('data-join');
+      const name = $('nameInput').value.trim();
+      if (!name) { showErr('먼저 이름을 입력해 주세요.'); $('nameInput').focus(); return; }
+      doJoin(code, name);
+    });
   }
 
   function escapeHtml(s) {
